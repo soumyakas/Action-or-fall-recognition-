@@ -1,0 +1,558 @@
+Data generator code :import keras
+import numpy as np
+# OpenCV
+#import cv2
+import os
+from skimage import data, color, io
+from skimage.transform import rescale, resize, downscale_local_mean
+import skimage
+
+class DataGenerator(keras.utils.Sequence):
+    'Generates data for Keras'
+    def __init__(self, dict_IDs, num_frames, batch_size=32, dim=(32,32), n_channels=1,
+                 n_classes=2, shuffle=True, is_cnnrnn_format=False):
+        'Initialization'
+        self.dim = dim
+        self.batch_size = batch_size
+        self.dict_IDs = dict_IDs
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.shuffle = shuffle
+        self.num_frames = num_frames
+        self.dict_IDs = dict_IDs
+        self.is_cnnrnn_format = is_cnnrnn_format
+
+        self.list_IDs = []
+
+        for key, value in dict_IDs.items():
+            self.list_IDs.append(key)
+
+        self.on_epoch_end()
+
+
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        return int(np.floor(len(self.list_IDs) / self.batch_size))
+
+    def __getitem__(self, index):
+        'Generate one batch of data'
+        # Generate indexes of the batch
+        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+
+        # Find list of IDs
+        #list_IDs_temp = [self.list_IDs[k] for k in indexes]
+        list_IDs_temp = []
+        for _, k in enumerate(indexes):
+            #print ("k = {}".format(k))
+            temp = self.list_IDs[k]
+            #print(temp)
+
+            list_IDs_temp.append(self.list_IDs[k])
+
+
+
+
+        # Generate data
+        X, y = self.__data_generation(list_IDs_temp)
+
+        X = np.asarray(X)
+        #print('before ', X.shape)
+
+        #print("Before reshaping", X.shape)
+        if self.is_cnnrnn_format:
+            X = X.reshape(X.shape[0], self.num_frames, self.dim[0], self.dim[1], 1)
+        else:
+            X = X.reshape(X.shape[0], self.dim[0], self.dim[1], self.num_frames, 1)
+        #print("After reshaping", X.shape)
+        #print('after ', X.shape)
+
+
+        # Pre-processing
+        X = X.astype('float32')
+        X -= np.mean(X)
+        X /= np.max(X)
+
+        #print("Data shape {}".format(X.shape))
+
+        return X, y
+
+    def on_epoch_end(self):
+        'Updates indexes after each epoch'
+        self.indexes = np.arange(len(self.list_IDs))
+        if self.shuffle:
+            np.random.shuffle(self.indexes)
+
+    def __data_generation(self, list_IDs_temp):
+        'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
+        # Initialization
+        #X = np.empty((self.batch_size, *self.dim, self.n_channels))
+        y = np.empty((self.batch_size), dtype=int)
+        X = []
+        # Generate data
+        for i, ID in enumerate(list_IDs_temp):
+            frames = self.read_frames(ID, 'frame ({}).png', self.num_frames)
+
+            input_frames = np.array(frames)
+
+            #print(input_frames.shape)
+            if not self.is_cnnrnn_format:
+                #print('Original 3DCNN format')
+                ipt = np.rollaxis(np.rollaxis(input_frames, 2, 0), 2, 0)
+                X.append(ipt)
+            else:
+                X.append(input_frames)
+                #print('CNN+RNN format', input_frames.shape)
+            #print('ipt ', ipt.shape)
+            #X[i,] = ipt
+
+
+
+            # Store class
+            y[i] = self.dict_IDs[ID]
+
+        return X, keras.utils.to_categorical(y, num_classes=self.n_classes)
+
+    def read_frames(self, folder, template, number):
+        frames = []
+        for i in range(number):
+            name = os.path.join(folder, template.format(i + 1))
+            frame = io.imread(name, as_grey=True)
+            #print(frame.shape)
+            #image_resized = skimage.transform.resize(frame, (self.dim[0], self.dim[1]))
+            #frame_pil.thumbnail((self.dim[0], self.dim[1]), Image.ANTIALIAS, )
+            #frame = np.array(frame_pil)
+            #print(image_resized.shape)
+            #gray = self.rgb2gray(frame)
+            #frame = cv2.resize(frame, (self.dim[0], self.dim[1]), interpolation=cv2.INTER_CUBIC)
+            #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            #print(gray.shape)
+            frames.append(frame)
+        return frames
+
+    def rgb2gray(self, rgb):
+
+        r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+        gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
+
+        return gray
+
+
+
+
+
+
+
+
+
+
+Folder list code : 
+
+
+import os
+from os import walk
+
+
+class_dictionary = {'background': 1,
+                    'sit': 1,
+                    'walk': 1,
+                    'stand': 1,
+                    'fall': 0,
+                    'temporary': 1,
+                    'arrange': 1,
+                    'pick': 1,
+                    'put': 1,
+                    'forwardmop': 1,
+                    'backwardmop': 1,
+                    'squat': 1,
+                    'lie': 1,
+                    'bend': 1}
+
+
+# class_dictionary = {'background': 0,
+           #         'sit': 1,
+            #        'walk': 2,
+             #       'stand': 3,
+             #       'fall': 4,
+               #     'temporary': 5,
+              #      'arrange': 6,
+              #      'pick': 7,
+              #      'put': 8,
+               #     'forwardmop': 9,
+               #    'backwardmop': 10,
+                #    'squat': 11,
+                #    'lie': 12,
+                  #  'bend': 13}
+
+def get_lists_sequences_classes(rootdir, debug_info = False):
+    f = []
+    dirpaths = []
+    labels = []
+    for (dirpath, dirnames, filenames) in walk(rootdir):
+        f.extend(dirnames)
+        break
+
+    for i in range(len(f)):
+        working_folder = os.path.join(rootdir, f[i])
+        if (debug_info):
+            print("Working with folder {}".format(working_folder))
+        inner_list = []
+        for (dirpath, dirnames, filenames) in walk(working_folder):
+            inner_list.extend(dirnames)
+            break
+        inner_list.sort()
+        #print(inner_list)
+
+        for deepest_idx in range(len(inner_list)):
+            final_folder = os.path.join(working_folder, inner_list[deepest_idx])
+            for (dirpath, dirnames, filenames) in walk(final_folder):
+                if len(filenames) != 20 and len(filenames) != 21:
+                    print("ERROR: {} frames in {}".format(len(filenames), final_folder))
+                    exit()
+                break
+
+
+            if (debug_info):
+                print(final_folder)
+            number, classname = inner_list[deepest_idx].split('_')
+            if (debug_info):
+                print("Num {} | Class {} | Classnum {}".format(number, classname, class_dictionary[classname]))
+            dirpaths.append(final_folder)
+            labels.append(class_dictionary[classname])
+    return dirpaths, labels
+
+def split_train_val(rootdir, ratio = 0.8):
+    paths_train = []
+    paths_val = []
+    label_train = []
+    label_val = []
+
+    train_dict = {}
+    val_dict = {}
+    dirpaths, labels = get_lists_sequences_classes(rootdir)
+    for cl in enumerate(class_dictionary):
+        indices = []
+        for i in range(len(labels)):
+            if labels[i] == cl[0]:
+                indices.append(i)
+        num_of_occur = len(indices)
+        num_train = int(num_of_occur * ratio)
+        num_val = num_of_occur - num_train
+        indices_train = indices[0:num_train]
+        indices_val = indices[num_train:]
+        #print("Tr {}, val {}".format(len(indices_train), len(indices_val)))
+        for _, idx_tr in enumerate(indices_train):
+            #paths_train.append(dirpaths[idx_tr])
+            #label_train.append(labels[idx_tr])
+            train_dict.update({dirpaths[idx_tr]: labels[idx_tr]})
+        for _, idx_val in enumerate(indices_val):
+            #paths_val.append(dirpaths[idx_val])
+            #label_val.append(labels[idx_val])
+            val_dict.update({dirpaths[idx_val]: labels[idx_val]})
+
+    print("Train samples {}\nVal samples {}".format(len(train_dict), len(val_dict)))
+    #print(val_dict)
+
+    return train_dict, val_dict
+
+
+if __name__ == "__main__":
+    split_train_val("/home/islab/Research/Sowmya/Datasets/frames/islab frames/Depth/", ratio=0.8)
+
+
+
+
+
+
+
+Preprocess code :
+
+
+import cv2
+import os
+from folder_list import get_lists_sequences_classes
+import csv
+
+def mkdir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+def read_frames(folder, template, number):
+    print("Reading from ", folder)
+    frames = []
+    for i in range(number):
+        name = os.path.join(folder, template.format(i + 1))
+        frame = cv2.imread(name)
+        #with open(os.path.join(folder,'roi.csv'), newline='') as csvfile:
+           # reader = csv.reader(csvfile, delimiter=';', quotechar='|')
+           # for row in reader:
+            #    print(row)
+             #   roi_x1, roi_y1, roi_x2, roi_y2 = row
+             #   roi_x1, roi_y1, roi_x2, roi_y2 = int(roi_x1), int(roi_y1), int(roi_x2), int(roi_y2)
+              #  frame_cropped = frame[roi_y1:roi_y2, roi_x1:roi_x2]
+
+        frame = cv2.resize(frame, (128, 128), interpolation=cv2.INTER_CUBIC)
+        # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frames.append(frame)
+    return frames
+
+#output_folder = "~/Research/Sowmya/Datasets/Frames_resized"
+#mkdir(output_folder)
+dirpaths, labels = get_lists_sequences_classes("/home/islab/Research/Sowmya/Datasets/frames/islab frames/Depth/")
+fold_num = 0
+for dirpath in dirpaths:
+    frames = read_frames(dirpath, 'frame ({}).png', 20)
+    new_path = dirpath.split("/")
+    new_path[0] = "/" + new_path[0]
+    new_path[6] = "frames_resized_128_cropped"
+
+    #print(new_path)
+    save_path = os.path.join(*new_path)
+    fold_num += 1
+    print(save_path + " iter: {}".format(fold_num))
+    mkdir(save_path)
+    for i in range(20):
+        cv2.imwrite(os.path.join(save_path,'frame ({}).png'.format(i+1)), frames[i])
+
+
+
+
+3dcnn code :
+
+
+import os
+os.environ["MKL_THREADING_LAYER"] = "GNU"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# -*- coding: utf-8 -*-
+"""
+Created on Jan 26, 2018
+Updated on Apr 22, 2018
+@author: Alexander Filonenko, Sowmya Kasturi
+"""
+# Imports
+from os import walk
+# Keras
+print("STARTING")
+import keras
+from keras.callbacks import ModelCheckpoint, CSVLogger
+from keras.models import Sequential
+from keras.layers.core import Dense, Dropout, Activation, Flatten
+from keras.layers.convolutional import Conv3D
+from keras.layers import MaxPooling3D
+print("LOADED STANDARD LIBRARIES")
+from Datagenerator import DataGenerator
+print("LOADED DataGenerator")
+import folder_list
+print("LOADED folder_list")
+
+
+
+class LossHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.losses = []
+        self.accs = []
+        self.val_losses = []
+        self.val_accs = []
+
+    def on_epoch_end(self, batch, logs={}):
+        self.losses.append(logs.get('loss'))
+        self.accs.append(logs.get('acc'))
+        self.val_losses.append(logs.get('val_loss'))
+        self.val_accs.append(logs.get('val_acc'))
+        print("--- Losses = ({}, {}), [t, v] \n ---Accuracy = ({}%, {}%), [t, v]".format(logs.get('loss'),
+                                                                                         logs.get('val_loss'),
+                                                                                         logs.get('acc')*100,
+                                                                                         logs.get('val_acc')*100))
+
+
+# Global variables
+NUMBER_OF_CLASSES = 2
+NUMBER_OF_EPOCHS =100
+BATCH_SIZE = 2
+NUMBER_OF_CHANNELS = 1
+
+
+# Parameters
+params = {'dim': (128, 128),
+          'num_frames': 20,
+          'batch_size': BATCH_SIZE,
+          'n_classes': NUMBER_OF_CLASSES,
+          'n_channels': NUMBER_OF_CHANNELS,
+          'shuffle': True}
+
+# Datasets
+# Load the list of folders in the training dataset folder
+print("LOADING DATASET DATA")
+train_dict, val_dict = folder_list.split_train_val("/home/islab/Research/Sowmya/Datasets/frames_resized_128_cropped/islab frames/Depth/", ratio=0.8)
+
+
+# Generators
+print("INITIALIZING DATA GENERATOR")
+training_generator = DataGenerator(train_dict, **params)
+validation_generator = DataGenerator(val_dict, **params)
+
+
+print("BUILDING A MODEL")
+# number of convolutional filters to use at each layer
+nb_filters = [  64,   # 1st conv layer
+                256,   # 2nd
+                512
+             ]
+
+# level of pooling to perform at each layer (POOL x POOL)
+nb_pool = [2, 2]
+
+# level of convolution to perform at each layer (CONV x CONV)
+nb_conv = [3, 3, 3]
+
+
+
+
+# autosave best Model
+best_model_file = ('best_model_training.h5')
+best_model = ModelCheckpoint(best_model_file, monitor='val_loss', verbose=1, save_best_only=True)
+history = LossHistory()
+csv_logger = CSVLogger('training.csv')
+#tbCallBack = keras.callbacks.TensorBoard(log_dir='Graph', histogram_freq=0, write_graph=True, write_images=True)
+from keras import optimizers
+sgd = optimizers.SGD(lr=0.001, decay=1e-6, momentum=0.9, nesterov=True)
+
+# Define model
+#input_shape = (1, img_rows, img_cols, img_depth)
+input_shape = (128, 128, 20, 1)
+model = Sequential()
+model.add(Conv3D(nb_filters[0],
+                 (nb_conv[0], nb_conv[0], 20),
+                 activation='relu',
+                 input_shape=input_shape,
+                 padding='same',
+                 dilation_rate=(2, 2, 1)))
+
+model.add(Conv3D(nb_filters[1], kernel_size=(nb_conv[1], nb_conv[1], nb_conv[1]),
+                 activation='relu',
+                 padding='same'))
+
+model.add(MaxPooling3D((nb_pool[0], nb_pool[0], 1)))
+
+# Mini-netwok
+model.add(Conv3D(nb_filters[1], kernel_size=(nb_conv[1], nb_conv[1], nb_conv[1]),
+                 activation='relu',
+                 padding='same'))
+
+model.add(Conv3D(nb_filters[1], kernel_size=(nb_conv[1], nb_conv[1], nb_conv[1]),
+                 activation='relu',
+                 padding='same'))
+
+model.add(MaxPooling3D((nb_pool[0], nb_pool[0], 1)))
+
+model.add(Conv3D(nb_filters[2], kernel_size=(nb_conv[2], nb_conv[2], nb_conv[2]), activation='relu'))
+
+model.add(Conv3D(nb_filters[2], kernel_size=(nb_conv[2], nb_conv[2], nb_conv[2]), activation='relu'))
+
+#model.add(MaxPooling3D(pool_size=(nb_pool[1], nb_pool[1], 1)))
+
+
+model.add(Conv3D(nb_filters[2], kernel_size=(nb_conv[2], nb_conv[2], nb_conv[2]), activation='relu'))
+
+model.add(Conv3D(nb_filters[2], kernel_size=(nb_conv[2], nb_conv[2], nb_conv[2]), activation='relu'))
+
+model.add(Conv3D(nb_filters[2], kernel_size=(nb_conv[2], nb_conv[2], nb_conv[2]), activation='relu'))
+
+model.add(Conv3D(nb_filters[2], kernel_size=(nb_conv[2], nb_conv[2], nb_conv[2]), activation='relu'))
+
+model.add(MaxPooling3D(pool_size=(nb_pool[1], nb_pool[1], 1)))
+
+model.add(Flatten())
+
+model.add(Dense(512, activation='relu'))
+
+model.add(Dropout(0.5))
+
+model.add(Dense(512, activation='relu'))
+
+model.add(Dropout(0.5))
+
+model.add(Dense(params['n_classes']))
+
+model.add(Activation('softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy', 'mse'])
+
+"""
+#X_train = X_train.reshape(X_train.shape[0], img_rows, img_cols, img_depth, 1)
+#X_val= X_val.reshape(X_val.shape[0], img_rows, img_cols, img_depth, 1)
+#input_shape = (img_rows, img_cols, img_depth, 1)
+input_shape = (1, img_rows, img_cols, img_depth)
+
+model = Sequential()
+
+print(nb_filters[0], 'filters')
+print('input shape', img_rows, 'rows', img_cols, 'cols', patch_size, 'patchsize')
+
+model.add(Convolution3D(
+    nb_filters[0],
+    kernel_dim1=nb_conv[0],  # depth
+    kernel_dim2=nb_conv[0],  # rows
+    kernel_dim3=nb_conv[0],  # cols
+    input_shape=input_shape,
+    activation='relu'
+))
+
+model.add(MaxPooling3D(pool_size=(nb_pool[0], nb_pool[0], nb_pool[0])))
+
+model.add(Dropout(0.5))
+
+model.add(Flatten())
+
+model.add(Dense(128, init='normal', activation='relu'))
+
+model.add(Dropout(0.5))
+
+model.add(Dense(nb_classes, init='normal'))
+
+model.add(Activation('softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='RMSprop', metrics=['mse', 'accuracy'])
+"""
+
+
+model.summary()
+# Split the data
+
+#X_train_new, X_val_new, y_train_new, y_val_new = train_test_split(train_set, Y_train, test_size=0.2, random_state=4)
+
+# Train the model
+model.fit_generator(generator=training_generator,
+                    validation_data=validation_generator,
+                    use_multiprocessing=False,
+                    nb_epoch=NUMBER_OF_EPOCHS,
+                    callbacks=[best_model, history, csv_logger])
+
+
+#hist = model.fit(train_set, Y_train, validation_data=(val_set, Y_val),
+#                 batch_size=batch_size, nb_epoch=nb_epoch, shuffle=True, verbose=1,
+#                 callbacks=[best_model, history, csv_logger, tbCallBack])
+
+# hist = model.fit(train_set, Y_train, batch_size=batch_size,
+#         nb_epoch=nb_epoch,validation_split=0.2, show_accuracy=True,
+#           shuffle=True)
+print("___________________________________________")
+print("Losses")
+print(history.losses)
+print("---------------------")
+print("acc")
+print(history.accs)
+print("---------------------")
+print("val_loss")
+print(history.val_losses)
+print("---------------------")
+print("val_acc")
+print(history.val_accs)
+print("___________________________________________")
+model.save("Model1_ir.h5")
+
+
+print("Finished fitting model")
+#score = model.evaluate(val_set, Y_val, verbose=1)
+#print('Test loss:', score[0])
+#print('Test mean squared error:', score[2])
+#print('Test accuracy:', score[1])
