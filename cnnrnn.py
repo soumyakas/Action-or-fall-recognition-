@@ -5,7 +5,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 """
 Created on Jan 26, 2018
 Updated on Apr 22, 2018
-@author: Alexander Filonenko, Sowmya Kasturi
+@author: Sowmya Kasturi, Alexander Filonenko
 """
 # Imports
 from os import walk
